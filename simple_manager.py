@@ -1,4 +1,5 @@
 import os
+import random
 import subprocess
 import configparser
 import tkinter as tk
@@ -79,6 +80,8 @@ class PiBoSoServerManager:
         style = ttk.Style()
         style.theme_use("clam")
 
+        self.current_preset_index = 0
+
         # Top Preset Bar
         top_frame = ttk.Frame(root, padding=10)
         top_frame.pack(fill="x")
@@ -94,6 +97,7 @@ class PiBoSoServerManager:
         )
         self.preset_combo.current(0)
         self.preset_combo.pack(side="left", padx=5)
+        self.preset_combo.bind("<<ComboboxSelected>>", self.on_preset_changed)
 
         ttk.Button(preset_frame, text="Load Preset", command=self.load_preset).pack(side="left", padx=2)
         ttk.Button(preset_frame, text="Save to Preset", command=self.save_preset).pack(side="left", padx=2)
@@ -120,7 +124,6 @@ class PiBoSoServerManager:
         self.admin_pwd_var = tk.StringVar(value="Brandonn")
         self.max_clients_var = tk.StringVar(value="35")
         self.port_var = tk.StringVar(value="54320")
-        self.bandwidth_var = tk.StringVar(value="3")
         self.max_ping_var = tk.StringVar(value="")
         self.polls_disable_var = tk.StringVar(value="0")
         self.whitelist_var = tk.StringVar(value="")
@@ -155,7 +158,6 @@ class PiBoSoServerManager:
         f_tb = ttk.LabelFrame(self.tab_track_bike, text="Track Rotation Builder & Bike Selection", padding=10)
         f_tb.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Track Search Box
         search_frame = ttk.Frame(f_tb)
         search_frame.pack(fill="x", pady=(0, 5))
         ttk.Label(search_frame, text="🔍 Search Tracks:").pack(side="left", padx=(0, 5))
@@ -163,11 +165,9 @@ class PiBoSoServerManager:
         self.track_search_var.trace_add("write", self.filter_available_tracks)
         ttk.Entry(search_frame, textvariable=self.track_search_var).pack(side="left", fill="x", expand=True)
 
-        # Dual Listbox Container
         dual_frame = ttk.Frame(f_tb)
         dual_frame.pack(fill="both", expand=True, pady=2)
 
-        # Left List: Available Tracks
         avail_frame = ttk.LabelFrame(dual_frame, text="Available Tracks", padding=5)
         avail_frame.pack(side="left", fill="both", expand=True, padx=(0, 5))
 
@@ -185,7 +185,6 @@ class PiBoSoServerManager:
         avail_scroll.pack(side="right", fill="y")
         self.avail_listbox.bind("<Double-Button-1>", lambda e: self.add_track_to_rotation())
 
-        # Center Transfer Buttons
         btn_center = ttk.Frame(dual_frame, padding=5)
         btn_center.pack(side="left", fill="y")
 
@@ -193,7 +192,6 @@ class PiBoSoServerManager:
         ttk.Button(btn_center, text="⬅ Remove", width=10, command=self.remove_track_from_rotation).pack(pady=5)
         ttk.Button(btn_center, text="Clear All", width=10, command=self.clear_rotation).pack(pady=15)
 
-        # Right List: Selected Rotation
         rotation_frame = ttk.LabelFrame(dual_frame, text="Active Rotation (Order Matters)", padding=5)
         rotation_frame.pack(side="left", fill="both", expand=True, padx=(5, 0))
 
@@ -211,14 +209,12 @@ class PiBoSoServerManager:
         rotation_scroll.pack(side="right", fill="y")
         self.rotation_listbox.bind("<Double-Button-1>", lambda e: self.remove_track_from_rotation())
 
-        # Far Right Order Buttons
         btn_order = ttk.Frame(rotation_frame, padding=2)
         btn_order.pack(side="right", fill="y")
 
         ttk.Button(btn_order, text="▲ Up", width=6, command=self.move_track_up).pack(pady=2)
         ttk.Button(btn_order, text="▼ Down", width=6, command=self.move_track_down).pack(pady=2)
 
-        # Initial Population of Available Tracks
         self.filtered_tracks = list(TRACKS_LIST)
         self.populate_available_tracks()
 
@@ -289,20 +285,33 @@ class PiBoSoServerManager:
         self.weather_var = tk.StringVar(value="0")
         self.track_cond_var = tk.StringVar(value="0")
         self.temp_var = tk.StringVar(value="19")
+        self.saved_manual_temp = "19"
 
         f_weather = ttk.LabelFrame(self.tab_weather, text="Weather Conditions", padding=15)
         f_weather.pack(fill="both", expand=True, padx=10, pady=10)
 
-        ttk.Label(f_weather, text="Weather Preset:").pack(anchor="w", pady=(5, 2))
-        ttk.Radiobutton(f_weather, text="Clear / Sunny", variable=self.weather_var, value="0").pack(anchor="w")
-        ttk.Radiobutton(f_weather, text="Cloudy", variable=self.weather_var, value="1").pack(anchor="w")
-        ttk.Radiobutton(f_weather, text="Rain", variable=self.weather_var, value="2").pack(anchor="w")
+        # Standard Weather Section
+        ttk.Label(f_weather, text="Standard Weather:", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(2, 2))
+        ttk.Radiobutton(f_weather, text="Clear / Sunny", variable=self.weather_var, value="0", command=self.on_weather_mode_changed).pack(anchor="w")
+        ttk.Radiobutton(f_weather, text="Cloudy", variable=self.weather_var, value="1", command=self.on_weather_mode_changed).pack(anchor="w")
+        ttk.Radiobutton(f_weather, text="Rain", variable=self.weather_var, value="2", command=self.on_weather_mode_changed).pack(anchor="w")
 
-        ttk.Label(f_weather, text="Track Surface:").pack(anchor="w", pady=(10, 2))
+        ttk.Separator(f_weather, orient="horizontal").pack(fill="x", pady=8)
+
+        # Variable Weather Presets Section
+        ttk.Label(f_weather, text="Variable Weather Presets:", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(2, 2))
+        ttk.Radiobutton(f_weather, text="Variable Sunny (16°C - 45°C Random)", variable=self.weather_var, value="var_sunny", command=self.on_weather_mode_changed).pack(anchor="w")
+        ttk.Radiobutton(f_weather, text="Variable Cloudy (9°C - 32°C Random)", variable=self.weather_var, value="var_cloudy", command=self.on_weather_mode_changed).pack(anchor="w")
+
+        ttk.Separator(f_weather, orient="horizontal").pack(fill="x", pady=8)
+
+        ttk.Label(f_weather, text="Track Surface:").pack(anchor="w", pady=(5, 2))
         ttk.Radiobutton(f_weather, text="Dry", variable=self.track_cond_var, value="0").pack(anchor="w")
         ttk.Radiobutton(f_weather, text="Wet", variable=self.track_cond_var, value="1").pack(anchor="w")
 
-        self.add_entry(f_weather, "Air Temperature (°C):", self.temp_var)
+        ttk.Label(f_weather, text="Air Temperature (°C):").pack(anchor="w", pady=(10, 1))
+        self.temp_entry = ttk.Entry(f_weather, textvariable=self.temp_var)
+        self.temp_entry.pack(fill="x", pady=2)
 
         # Bottom Bar
         bot_frame = ttk.Frame(root, padding=10)
@@ -314,6 +323,7 @@ class PiBoSoServerManager:
         self.stop_btn = ttk.Button(bot_frame, text="🛑 Close / Stop Server", command=self.stop_server)
         self.stop_btn.pack(side="right", fill="x", expand=True, padx=5)
 
+        # Load main INI or set defaults
         self.load_from_ini(INI_PATH)
 
     # --- TRACK ROTATION METHODS ---
@@ -393,22 +403,42 @@ class PiBoSoServerManager:
         if file_path:
             string_var.set(file_path)
 
-    def get_preset_path(self):
-        preset_idx = self.preset_combo.current() + 1
-        return os.path.join(PRESET_DIR, f"preset_{preset_idx}.ini")
+    def on_weather_mode_changed(self):
+        w_mode = self.weather_var.get()
+        if w_mode in ["var_sunny", "var_cloudy"]:
+            if self.temp_var.get() != "[Randomized]":
+                self.saved_manual_temp = self.temp_var.get()
+            self.temp_var.set("[Randomized]")
+            self.temp_entry.config(state="disabled")
+        else:
+            if self.temp_var.get() == "[Randomized]":
+                self.temp_var.set(self.saved_manual_temp)
+            self.temp_entry.config(state="normal")
+
+    # --- PRESET HANDLING ---
+    def get_preset_path_by_index(self, idx):
+        return os.path.join(PRESET_DIR, f"preset_{idx + 1}.ini")
+
+    def on_preset_changed(self, event=None):
+        new_index = self.preset_combo.current()
+        if new_index != self.current_preset_index:
+            old_path = self.get_preset_path_by_index(self.current_preset_index)
+            self.write_ini_file(old_path)
+            
+            self.current_preset_index = new_index
+            self.load_preset()
 
     def save_preset(self):
-        target_path = self.get_preset_path()
+        target_path = self.get_preset_path_by_index(self.preset_combo.current())
         self.write_ini_file(target_path)
         messagebox.showinfo("Preset Saved", f"Saved configuration to {self.preset_combo.get()}!")
 
     def load_preset(self):
-        target_path = self.get_preset_path()
+        target_path = self.get_preset_path_by_index(self.preset_combo.current())
         if os.path.exists(target_path):
             self.load_from_ini(target_path)
-            messagebox.showinfo("Preset Loaded", f"Loaded settings from {self.preset_combo.get()}!")
         else:
-            messagebox.showwarning("Preset Not Found", f"No saved file found for {self.preset_combo.get()}.")
+            messagebox.showwarning("Preset Not Found", f"No saved file found for {self.preset_combo.get()}.\nSave a preset first to create it.")
 
     # --- INI FILE I/O ---
     def load_from_ini(self, file_path):
@@ -451,10 +481,9 @@ class PiBoSoServerManager:
                     else:
                         break
 
-                if tracks_found:
-                    self.rotation_listbox.delete(0, tk.END)
-                    for t in tracks_found:
-                        self.rotation_listbox.insert(tk.END, t)
+                self.rotation_listbox.delete(0, tk.END)
+                for t in tracks_found:
+                    self.rotation_listbox.insert(tk.END, t)
 
             if parser.has_section("hardcore"):
                 self.view_var.set(parser.get("hardcore", "force_cockpit", fallback=self.view_var.get()).split(";")[0].strip())
@@ -483,9 +512,16 @@ class PiBoSoServerManager:
                 self.replay_dir_var.set(parser.get("replay", "directory", fallback=self.replay_dir_var.get()).split(";")[0].strip())
 
             if parser.has_section("weather"):
-                self.weather_var.set(parser.get("weather", "conditions", fallback=self.weather_var.get()).split(";")[0].strip())
+                w_val = parser.get("weather", "conditions", fallback=self.weather_var.get()).split(";")[0].strip()
+                if w_val in ["0", "1", "2", "var_sunny", "var_cloudy"]:
+                    self.weather_var.set(w_val)
                 self.track_cond_var.set(parser.get("weather", "track_conditions", fallback=parser.get("weather", "track", fallback=self.track_cond_var.get())).split(";")[0].strip())
-                self.temp_var.set(parser.get("weather", "temperature", fallback=self.temp_var.get()).split(";")[0].strip())
+                
+                loaded_temp = parser.get("weather", "temperature", fallback=self.temp_var.get()).split(";")[0].strip()
+                if loaded_temp.isdigit() or (loaded_temp.startswith("-") and loaded_temp[1:].isdigit()):
+                    self.saved_manual_temp = loaded_temp
+
+                self.on_weather_mode_changed()
 
         except Exception as e:
             print(f"INI pre-load warning: {e}")
@@ -508,7 +544,7 @@ class PiBoSoServerManager:
         event_block += f"category = {bike_name}\n"
         event_block += "allowed_bikes =\n\n"
 
-        # 2. CONNECTION BLOCK (Public Type Enforced)
+        # 2. CONNECTION BLOCK
         bw_code = str(self.bandwidth_combo.current())
         admin_pwd = self.admin_pwd_var.get().strip()
 
@@ -547,11 +583,24 @@ prefix =
 
 """
 
-        # 4. WEATHER & HARDCORE
+        # 4. WEATHER & HARDCORE (Randomized logic for variable modes)
+        w_mode = self.weather_var.get().strip()
+        if w_mode == "var_sunny":
+            final_conditions = "0"
+            final_temp = str(random.randint(16, 45))
+        elif w_mode == "var_cloudy":
+            final_conditions = "1"
+            final_temp = str(random.randint(9, 32))
+        else:
+            final_conditions = w_mode
+            final_temp = self.temp_var.get().strip()
+            if not final_temp or final_temp == "[Randomized]":
+                final_temp = self.saved_manual_temp
+
         weather_block = f"""[weather]
 realistic = 0
-conditions = {self.weather_var.get().strip()}
-temperature = {self.temp_var.get().strip()}
+conditions = {final_conditions}
+temperature = {final_temp}
 wind_direction = 0
 wind_speed = 3
 track_conditions = {self.track_cond_var.get().strip()}
